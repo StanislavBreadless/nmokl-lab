@@ -1,6 +1,7 @@
 import tensorflow as tf;
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+import numpy as np
 
 import os
 
@@ -11,7 +12,7 @@ trunc_type='post'
 padding_type='post'
 oov_tok = "<OOV>"
 
-TRAINING_SIZE = 9000
+TRAINING_SIZE = 12500
 
 import re
 # as per recommendation from @freylis, compile once only
@@ -28,7 +29,6 @@ def process(txts):
   return txts
 
 def get_data(type):
-    # return []
     path = '.\\aclImdb\\' + type
 
     directory = os.fsencode(path)
@@ -83,64 +83,67 @@ print(f'Labels assigned. Total testing size = {len(testing_data)}. Positive labe
 
 print('Tokenization')
 
+from sklearn.feature_extraction.text import CountVectorizer
+veczr =  CountVectorizer(ngram_range=(1,3), binary=True, 
+                          token_pattern=r'\w+',
+                          max_features=vocab_size)
+
+
 tokenizer = Tokenizer(num_words=vocab_size, oov_token=oov_tok)
 # training_data = process(['<br /><br />', 'I do not care about the dogs!!!'])
 training_data = process(training_data)
-# print(training_data)
-# quit()
-tokenizer.fit_on_texts(training_data)
+
+def dtm2wid(dtm, maxlen):
+    x = []
+    nwds = []
+    for idx, row in enumerate(dtm):
+        seq = []
+        indices = (row.indices + 1).astype(np.int64)
+        # np.append(nwds, len(indices))
+        data = (row.data).astype(np.int64)
+        count_dict = dict(zip(indices, data))
+        for k,v in count_dict.items():
+            seq.extend([k]*v)
+        num_words = len(seq)
+        nwds.append(num_words)
+        # pad up to maxlen with 0
+        if num_words < maxlen: 
+            seq = np.pad(seq, (maxlen - num_words, 0),    
+                         mode='constant')
+        # truncate down to maxlen
+        else:                  
+            seq = seq[-maxlen:]
+        x.append(seq)
+    nwds = np.array(nwds)
+    print('sequence stats: avg:%s, max:%s, min:%s' % (nwds.mean(),
+                                                      nwds.max(), 
+                                                      nwds.min()) )
+    return np.array(x)
 
 
+dtm_train = veczr.fit_transform(training_data)
+dtm_test = veczr.transform(testing_data)
 
-word_index = tokenizer.word_index
+wid_train = dtm2wid(dtm_train ,max_length)
+wid_test = dtm2wid(dtm_test ,max_length)
 
-training_sequences = tokenizer.texts_to_sequences(training_data)
-training_padded = pad_sequences(training_sequences, maxlen=max_length, padding=padding_type, truncating=trunc_type)
-
-# print(training_padded)
-# quit()
-
-testing_sequences = tokenizer.texts_to_sequences(testing_data)
-testing_padded = pad_sequences(testing_sequences, maxlen=max_length, padding=padding_type, truncating=trunc_type)
-
-
-
-import numpy as np
-training_padded = np.array(training_padded)
 training_labels = np.array(training_labels)
-testing_padded = np.array(testing_padded)
 testing_labels = np.array(testing_labels)
 
 print('Tokenization complete. Compiling model...')
 
 model = tf.keras.Sequential([
-    tf.keras.layers.Embedding(vocab_size, embedding_dim, input_length=max_length),
-    tf.keras.layers.SpatialDropout1D(0.3),
+    tf.keras.layers.Embedding(vocab_size+1, embedding_dim, input_length=max_length),
     tf.keras.layers.GlobalAveragePooling1D(),
     tf.keras.layers.Dense(12, activation='relu', kernel_regularizer='l2'),
     tf.keras.layers.Dense(1, activation='sigmoid')
 ])
 
-# model = tf.keras.Sequential([
-#     tf.keras.layers.Embedding(vocab_size, embedding_dim, input_length=max_length),
-#     tf.keras.layers.SpatialDropout1D(0.15),
-#     tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(embedding_dim)),
-#     tf.keras.layers.Dense(12, activation='relu', kernel_regularizer='l2'),
-#     tf.keras.layers.Dense(1, activation='sigmoid')
-# ])
-
 model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
 
 print(model.summary())
 
-
 num_epochs = 30
 print(f'Training model. Number of epochs = {num_epochs}')
 
-history = model.fit(training_padded, training_labels, epochs=num_epochs, validation_data=(testing_padded, testing_labels), verbose=2)
-
-# import numpy as np
-# training_padded = np.array(training_padded)
-# training_labels = np.array(training_labels)
-# testing_padded = np.array(testing_padded)
-# testing_labels = np.array(testing_labels)
+history = model.fit(wid_train, training_labels, epochs=num_epochs, validation_data=(wid_test, testing_labels), verbose=2)
