@@ -1,33 +1,39 @@
 import tensorflow as tf;
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
 import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
 
 import os
 
+# The maximum amount of n-grams allowed
 vocab_size = 50000
+# The dimension of the embedding layer
 embedding_dim = 10
+# Maximum length of texts (the rest are padded/truncated) to this length
 max_length = 1000
+# Truncation will delete the last characters
 trunc_type='post'
+# Padding will append zeroes to the end
 padding_type='post'
-oov_tok = "<OOV>"
 
+# The size of training/testing datasets
 TRAINING_SIZE = 12500
 
 import re
 # as per recommendation from @freylis, compile once only
 CLEANR = re.compile('<.*?>') 
 
+# Remove html tags from a text
 def cleanhtml(raw_html):
   cleantext = re.sub(CLEANR, ' ', raw_html)
   return cleantext
 
+# Removes html tags from an array of texts 
 def process(txts):
   for i in range(len(txts)):
     txts[i] = cleanhtml(txts[i])
   return txts
 
+# Reads texts based on type
 def get_data(type):
     path = '.\\aclImdb\\' + type
 
@@ -79,14 +85,15 @@ for i in range(0, len(testing_neg)):
 print(f'Labels assigned. Total training size = {len(training_labels)}. Positive labels = {len(train_pos)}. Negative labels = {len(train_neg)}')
 print(f'Labels assigned. Total testing size = {len(testing_data)}. Positive labels = {len(testing_pos)}. Negative labels = {len(testing_neg)}')
 
-print('Tokenization')
+print('Preprocessing')
 
+# ngram_range means that we will allow ngrams of length 1,2,3
+# binary is set to true to not account the same ngram twice. In our particular model 
+# this is a better approach.
 veczr =  CountVectorizer(ngram_range=(1,3), binary=True, 
                           token_pattern=r'\w+',
                           max_features=vocab_size)
 
-
-tokenizer = Tokenizer(num_words=vocab_size, oov_token=oov_tok)
 training_data = process(training_data)
 
 # Converts DTM to a sequences padded to maxlen
@@ -114,17 +121,18 @@ def dtm_to_seq(dtm, maxlen):
         x.append(seq)
     return np.array(x)
 
-
+# Converting training/testing data to DTMs
 dtm_train = veczr.fit_transform(training_data)
 dtm_test = veczr.transform(testing_data)
 
-wid_train = dtm_to_seq(dtm_train ,max_length)
-wid_test = dtm_to_seq(dtm_test ,max_length)
+# Converting DTMs to sequence of words 
+seq_train = dtm_to_seq(dtm_train, max_length)
+seq_test = dtm_to_seq(dtm_test, max_length)
 
 training_labels = np.array(training_labels)
 testing_labels = np.array(testing_labels)
 
-print('Tokenization complete. Compiling model...')
+print('Preprocessing complete. Compiling model...')
 
 model = tf.keras.Sequential([
     # +1 is needed, since values in range [0, vocab_size] are possible, where
@@ -142,4 +150,4 @@ print(model.summary())
 num_epochs = 30
 print(f'Training model. Number of epochs = {num_epochs}')
 
-history = model.fit(wid_train, training_labels, epochs=num_epochs, validation_data=(wid_test, testing_labels), verbose=2)
+history = model.fit(seq_train, training_labels, epochs=num_epochs, validation_data=(seq_test, testing_labels), verbose=2)
