@@ -2,6 +2,7 @@ import tensorflow as tf;
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import numpy as np
+from sklearn.feature_extraction.text import CountVectorizer
 
 import os
 
@@ -21,7 +22,6 @@ CLEANR = re.compile('<.*?>')
 def cleanhtml(raw_html):
   cleantext = re.sub(CLEANR, ' ', raw_html)
   return cleantext
-
 
 def process(txts):
   for i in range(len(txts)):
@@ -79,53 +79,47 @@ for i in range(0, len(testing_neg)):
 print(f'Labels assigned. Total training size = {len(training_labels)}. Positive labels = {len(train_pos)}. Negative labels = {len(train_neg)}')
 print(f'Labels assigned. Total testing size = {len(testing_data)}. Positive labels = {len(testing_pos)}. Negative labels = {len(testing_neg)}')
 
-
-
 print('Tokenization')
 
-from sklearn.feature_extraction.text import CountVectorizer
 veczr =  CountVectorizer(ngram_range=(1,3), binary=True, 
                           token_pattern=r'\w+',
                           max_features=vocab_size)
 
 
 tokenizer = Tokenizer(num_words=vocab_size, oov_token=oov_tok)
-# training_data = process(['<br /><br />', 'I do not care about the dogs!!!'])
 training_data = process(training_data)
 
-def dtm2wid(dtm, maxlen):
+# Converts DTM to a sequences padded to maxlen
+def dtm_to_seq(dtm, maxlen):
     x = []
-    nwds = []
-    for idx, row in enumerate(dtm):
+    for _, row in enumerate(dtm):
         seq = []
+        # Indeces numerated starting from 1.
         indices = (row.indices + 1).astype(np.int64)
-        # np.append(nwds, len(indices))
+        # Data inside the row
         data = (row.data).astype(np.int64)
+
+        # Iterative over a tuple and filling in the sequence
         count_dict = dict(zip(indices, data))
         for k,v in count_dict.items():
             seq.extend([k]*v)
         num_words = len(seq)
-        nwds.append(num_words)
-        # pad up to maxlen with 0
+        # Pad up to maxlen with 0
         if num_words < maxlen: 
             seq = np.pad(seq, (maxlen - num_words, 0),    
                          mode='constant')
-        # truncate down to maxlen
+        # Truncate down to maxlen
         else:                  
             seq = seq[-maxlen:]
         x.append(seq)
-    nwds = np.array(nwds)
-    print('sequence stats: avg:%s, max:%s, min:%s' % (nwds.mean(),
-                                                      nwds.max(), 
-                                                      nwds.min()) )
     return np.array(x)
 
 
 dtm_train = veczr.fit_transform(training_data)
 dtm_test = veczr.transform(testing_data)
 
-wid_train = dtm2wid(dtm_train ,max_length)
-wid_test = dtm2wid(dtm_test ,max_length)
+wid_train = dtm_to_seq(dtm_train ,max_length)
+wid_test = dtm_to_seq(dtm_test ,max_length)
 
 training_labels = np.array(training_labels)
 testing_labels = np.array(testing_labels)
@@ -133,6 +127,8 @@ testing_labels = np.array(testing_labels)
 print('Tokenization complete. Compiling model...')
 
 model = tf.keras.Sequential([
+    # +1 is needed, since values in range [0, vocab_size] are possible, where
+    # [1, vocab_size] correspond to the words, while "0" means no item
     tf.keras.layers.Embedding(vocab_size+1, embedding_dim, input_length=max_length),
     tf.keras.layers.GlobalAveragePooling1D(),
     tf.keras.layers.Dense(12, activation='relu', kernel_regularizer='l2'),
